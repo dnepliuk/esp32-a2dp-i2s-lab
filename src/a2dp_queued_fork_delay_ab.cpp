@@ -2,6 +2,8 @@
 #include <AudioTools.h>
 #include <BluetoothA2DPSinkQueued.h>
 #include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -14,6 +16,36 @@
 #error "This A/B test permits only A2DP_POST_WRITE_DELAY_MS=0 or 5"
 #endif
 
+#ifndef A2DP_I2S_WRITE_SIZE_UPTO
+#error "A2DP_I2S_WRITE_SIZE_UPTO must be defined as 1440 or 4096"
+#endif
+
+#if A2DP_I2S_WRITE_SIZE_UPTO != 1440 && A2DP_I2S_WRITE_SIZE_UPTO != 4096
+#error "This A/B test permits only A2DP_I2S_WRITE_SIZE_UPTO=1440 or 4096"
+#endif
+
+#if A2DP_POST_WRITE_DELAY_MS == 5 && A2DP_I2S_WRITE_SIZE_UPTO != 1440
+#error "The delay5 control must retain the upstream 1440-byte write maximum"
+#endif
+
+#ifndef A2DP_I2S_TASK_PRIORITY
+#error "A2DP_I2S_TASK_PRIORITY must be defined as the upstream default or 2"
+#endif
+
+#if A2DP_I2S_TASK_PRIORITY <= 0 || A2DP_I2S_TASK_PRIORITY >= configMAX_PRIORITIES
+#error "A2DP_I2S_TASK_PRIORITY must be > 0 and < configMAX_PRIORITIES"
+#endif
+
+#if A2DP_I2S_TASK_PRIORITY != 2 && \
+    A2DP_I2S_TASK_PRIORITY != (configMAX_PRIORITIES - 3)
+#error "This A/B test permits only the upstream task priority or 2"
+#endif
+
+#if A2DP_I2S_TASK_PRIORITY == 2 && \
+    (A2DP_POST_WRITE_DELAY_MS != 0 || A2DP_I2S_WRITE_SIZE_UPTO != 4096)
+#error "The priority-2 experiment must retain delay=0 and write_size=4096"
+#endif
+
 namespace {
 
 constexpr uint32_t kInitialSampleRate = 44100;
@@ -21,16 +53,32 @@ constexpr uint8_t kChannels = 2;
 constexpr uint8_t kBitsPerSample = 16;
 constexpr uint32_t kStatsIntervalMs = 5000;
 
-#if A2DP_POST_WRITE_DELAY_MS == 5
+#if A2DP_I2S_TASK_PRIORITY == 2
+constexpr char kVariant[] = "queued-fork-d0-w4096-p2";
+constexpr char kBluetoothName[] = "Faital A2DP D0 W4096 P2";
+constexpr char kPostWriteDelayLine[] = "Post-write delay: 0 ms";
+constexpr char kExpectedBehavior[] = "4096-byte writes with consumer priority 2";
+#elif A2DP_POST_WRITE_DELAY_MS == 5
 constexpr char kVariant[] = "queued-fork-delay5";
 constexpr char kBluetoothName[] = "Faital A2DP Fork D5";
 constexpr char kPostWriteDelayLine[] = "Post-write delay: 5 ms";
 constexpr char kExpectedBehavior[] = "upstream-compatible control";
-#else
+#elif A2DP_I2S_WRITE_SIZE_UPTO == 1440
 constexpr char kVariant[] = "queued-fork-delay0";
 constexpr char kBluetoothName[] = "Faital A2DP Fork D0";
 constexpr char kPostWriteDelayLine[] = "Post-write delay: 0 ms";
 constexpr char kExpectedBehavior[] = "no artificial consumer pause";
+#else
+constexpr char kVariant[] = "queued-fork-delay0-write4096";
+constexpr char kBluetoothName[] = "Faital A2DP D0 W4096";
+constexpr char kPostWriteDelayLine[] = "Post-write delay: 0 ms";
+constexpr char kExpectedBehavior[] = "4096-byte consumer receive/write maximum";
+#endif
+
+#if A2DP_I2S_WRITE_SIZE_UPTO == 1440
+constexpr char kI2SWriteSizeLine[] = "I2S write size upto: 1440 bytes";
+#else
+constexpr char kI2SWriteSizeLine[] = "I2S write size upto: 4096 bytes";
 #endif
 
 struct Counters {
@@ -47,6 +95,13 @@ struct Counters {
   uint64_t consumer_write_us_max = 0;
   uint64_t consumer_gap_us_max = 0;
   uint64_t consumer_last_start_us = 0;
+  uint64_t write_size_1216 = 0;
+  uint64_t write_size_1440 = 0;
+  uint64_t write_size_4096 = 0;
+  uint64_t write_size_other = 0;
+  uint64_t write_size_other_bytes = 0;
+  uint64_t write_size_min = 0;
+  uint64_t write_size_max = 0;
 };
 
 struct DeferredDiagnostics {
@@ -58,15 +113,37 @@ struct DeferredDiagnostics {
   bool sbc_pending = false;
 };
 
+struct TaskContextDiagnostics {
+  BaseType_t producer_core = -1;
+  UBaseType_t producer_priority = 0;
+  BaseType_t consumer_core = -1;
+  UBaseType_t consumer_priority = 0;
+  bool producer_ready = false;
+  bool consumer_ready = false;
+  bool reported = false;
+};
+
 portMUX_TYPE probe_mux = portMUX_INITIALIZER_UNLOCKED;
 Counters counters;
 DeferredDiagnostics diagnostics;
+TaskContextDiagnostics task_context;
 
 class CountedI2SStream final : public audio_tools::I2SStream {
  public:
   using audio_tools::I2SStream::write;
 
   size_t write(const uint8_t* data, size_t len) override {
+    if (!context_captured_) {
+      const BaseType_t core = xPortGetCoreID();
+      const UBaseType_t priority = uxTaskPriorityGet(nullptr);
+      portENTER_CRITICAL(&probe_mux);
+      task_context.consumer_core = core;
+      task_context.consumer_priority = priority;
+      task_context.consumer_ready = true;
+      portEXIT_CRITICAL(&probe_mux);
+      context_captured_ = true;
+    }
+
     const uint64_t start_us = static_cast<uint64_t>(esp_timer_get_time());
     const size_t written = audio_tools::I2SStream::write(data, len);
     const uint64_t end_us = static_cast<uint64_t>(esp_timer_get_time());
@@ -87,12 +164,29 @@ class CountedI2SStream final : public audio_tools::I2SStream {
     if (write_us > counters.consumer_write_us_max) {
       counters.consumer_write_us_max = write_us;
     }
+    if (len == 1216) {
+      ++counters.write_size_1216;
+    } else if (len == 1440) {
+      ++counters.write_size_1440;
+    } else if (len == 4096) {
+      ++counters.write_size_4096;
+    } else {
+      ++counters.write_size_other;
+      counters.write_size_other_bytes += len;
+    }
+    if (counters.write_size_min == 0 || len < counters.write_size_min) {
+      counters.write_size_min = len;
+    }
+    if (len > counters.write_size_max) counters.write_size_max = len;
     if (written != len) ++counters.consumer_short_writes;
     if (len != 0 && written == 0) ++counters.consumer_errors;
     portEXIT_CRITICAL(&probe_mux);
 
     return written;
   }
+
+ private:
+  bool context_captured_ = false;
 };
 
 class ProbedQueuedSink final : public BluetoothA2DPSinkQueued {
@@ -103,6 +197,17 @@ class ProbedQueuedSink final : public BluetoothA2DPSinkQueued {
 
  protected:
   size_t write_audio(const uint8_t* data, size_t size) override {
+    if (!context_captured_) {
+      const BaseType_t core = xPortGetCoreID();
+      const UBaseType_t priority = uxTaskPriorityGet(nullptr);
+      portENTER_CRITICAL(&probe_mux);
+      task_context.producer_core = core;
+      task_context.producer_priority = priority;
+      task_context.producer_ready = true;
+      portEXIT_CRITICAL(&probe_mux);
+      context_captured_ = true;
+    }
+
     const size_t accepted = BluetoothA2DPSinkQueued::write_audio(data, size);
 
     portENTER_CRITICAL(&probe_mux);
@@ -133,6 +238,7 @@ class ProbedQueuedSink final : public BluetoothA2DPSinkQueued {
 
  private:
   bool codec_seen_ = false;
+  bool context_captured_ = false;
 };
 
 CountedI2SStream i2s;
@@ -144,6 +250,27 @@ Counters takeCountersSnapshot() {
   result = counters;
   portEXIT_CRITICAL(&probe_mux);
   return result;
+}
+
+esp_a2d_audio_state_t takeAudioStateSnapshot() {
+  esp_a2d_audio_state_t result;
+  portENTER_CRITICAL(&probe_mux);
+  result = diagnostics.audio_state;
+  portEXIT_CRITICAL(&probe_mux);
+  return result;
+}
+
+bool takeTaskContextForReport(TaskContextDiagnostics& result) {
+  bool ready = false;
+  portENTER_CRITICAL(&probe_mux);
+  if (task_context.producer_ready && task_context.consumer_ready &&
+      !task_context.reported) {
+    task_context.reported = true;
+    result = task_context;
+    ready = true;
+  }
+  portEXIT_CRITICAL(&probe_mux);
+  return ready;
 }
 
 const char* audioStateName(esp_a2d_audio_state_t state) {
@@ -253,7 +380,7 @@ uint64_t byteRate(uint64_t bytes, uint32_t elapsed_ms) {
 }
 
 void printStats(const Counters& current, const Counters& previous,
-                uint32_t elapsed_ms) {
+                uint32_t elapsed_ms, esp_a2d_audio_state_t audio_state) {
   const uint64_t producer_calls_delta =
       current.producer_calls - previous.producer_calls;
   const uint64_t offered_delta =
@@ -278,7 +405,8 @@ void printStats(const Counters& current, const Counters& previous,
       static_cast<int64_t>(current.consumer_written);
 
   Serial.printf(
-      "RATE stats: elapsed_ms=%lu, producer_calls=%llu (+%llu), "
+      "RATE stats: elapsed_ms=%lu, rate_valid=%s, "
+      "producer_calls=%llu (+%llu), "
       "offered=%llu (+%llu), accepted=%llu (+%llu), rejected=%llu (+%llu), "
       "producer_rate=%llu B/s, consumer_calls=%llu (+%llu), "
       "requested=%llu (+%llu), written=%llu (+%llu), "
@@ -286,6 +414,7 @@ void printStats(const Counters& current, const Counters& previous,
       "short=%llu, errors=%llu, write_us_avg=%llu, write_us_max=%llu, "
       "consumer_gap_ms_max=%llu, free_heap=%u\n",
       static_cast<unsigned long>(elapsed_ms),
+      audio_state == ESP_A2D_AUDIO_STATE_STARTED ? "yes" : "no",
       static_cast<unsigned long long>(current.producer_calls),
       static_cast<unsigned long long>(producer_calls_delta),
       static_cast<unsigned long long>(current.producer_offered),
@@ -309,6 +438,31 @@ void printStats(const Counters& current, const Counters& previous,
       static_cast<unsigned long long>(current.consumer_write_us_max),
       static_cast<unsigned long long>(current.consumer_gap_us_max / 1000ULL),
       static_cast<unsigned int>(ESP.getFreeHeap()));
+
+  Serial.printf(
+      "WRITE SIZE stats: calls=%llu, interval=%llu, "
+      "size_1216=%llu (+%llu), size_1440=%llu (+%llu), "
+      "size_4096=%llu (+%llu), other=%llu (+%llu), "
+      "other_bytes=%llu (+%llu), min=%llu, max=%llu\n",
+      static_cast<unsigned long long>(current.consumer_calls),
+      static_cast<unsigned long long>(consumer_calls_delta),
+      static_cast<unsigned long long>(current.write_size_1216),
+      static_cast<unsigned long long>(current.write_size_1216 -
+                                      previous.write_size_1216),
+      static_cast<unsigned long long>(current.write_size_1440),
+      static_cast<unsigned long long>(current.write_size_1440 -
+                                      previous.write_size_1440),
+      static_cast<unsigned long long>(current.write_size_4096),
+      static_cast<unsigned long long>(current.write_size_4096 -
+                                      previous.write_size_4096),
+      static_cast<unsigned long long>(current.write_size_other),
+      static_cast<unsigned long long>(current.write_size_other -
+                                      previous.write_size_other),
+      static_cast<unsigned long long>(current.write_size_other_bytes),
+      static_cast<unsigned long long>(current.write_size_other_bytes -
+                                      previous.write_size_other_bytes),
+      static_cast<unsigned long long>(current.write_size_min),
+      static_cast<unsigned long long>(current.write_size_max));
 }
 
 }  // namespace
@@ -327,6 +481,16 @@ void setup() {
   Serial.println("ESP32-A2DP source: local delay-configurable fork");
   Serial.println("Fork modification: configurable post-write delay only");
   Serial.println(kPostWriteDelayLine);
+  Serial.println(kI2SWriteSizeLine);
+  Serial.printf("Queued consumer priority: %u\n",
+                static_cast<unsigned int>(A2DP_I2S_TASK_PRIORITY));
+#if A2DP_I2S_TASK_PRIORITY == 2
+  Serial.println("Queued consumer core: 1");
+#endif
+#if A2DP_I2S_WRITE_SIZE_UPTO == 4096
+  Serial.println("Expected producer block: 4096 bytes");
+  Serial.println("Expected consumer writes per producer block: approximately 1");
+#endif
   Serial.printf("Expected behavior: %s\n", kExpectedBehavior);
   Serial.println("Queued implementation: upstream fork");
   Serial.println("I2S: Philips, 44100 Hz initial, s16le stereo");
@@ -353,6 +517,8 @@ void setup() {
   Serial.printf("I2S begin: %s\n", i2s_started ? "success" : "failed");
 
   a2dp_sink.set_i2s_post_write_delay_ms(A2DP_POST_WRITE_DELAY_MS);
+  a2dp_sink.set_i2s_write_size_upto(A2DP_I2S_WRITE_SIZE_UPTO);
+  a2dp_sink.set_i2s_task_priority(A2DP_I2S_TASK_PRIORITY);
   a2dp_sink.set_output_active_by_state(false);
   a2dp_sink.set_sample_rate_callback(onSampleRate);
   a2dp_sink.set_on_audio_state_changed(onAudioState);
@@ -365,11 +531,22 @@ void loop() {
 
   printDeferredDiagnostics();
 
+  TaskContextDiagnostics context;
+  if (takeTaskContextForReport(context)) {
+    Serial.printf(
+        "TASK context: producer_core=%d, producer_priority=%u, "
+        "consumer_core=%d, consumer_priority=%u\n",
+        static_cast<int>(context.producer_core),
+        static_cast<unsigned int>(context.producer_priority),
+        static_cast<int>(context.consumer_core),
+        static_cast<unsigned int>(context.consumer_priority));
+  }
+
   const uint32_t now_ms = millis();
   const uint32_t elapsed_ms = now_ms - last_stats_ms;
   if (elapsed_ms >= kStatsIntervalMs) {
     const Counters current = takeCountersSnapshot();
-    printStats(current, previous, elapsed_ms);
+    printStats(current, previous, elapsed_ms, takeAudioStateSnapshot());
     previous = current;
     last_stats_ms = now_ms;
   }

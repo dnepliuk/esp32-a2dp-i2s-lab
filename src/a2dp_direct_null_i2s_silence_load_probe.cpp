@@ -3,8 +3,17 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+
+#ifndef A2DP_I2S_LOAD_TONE
+#error "A2DP_I2S_LOAD_TONE must be defined as 0 or 1"
+#endif
+
+#if A2DP_I2S_LOAD_TONE != 0 && A2DP_I2S_LOAD_TONE != 1
+#error "A2DP_I2S_LOAD_TONE must be 0 (silence) or 1 (1000 Hz tone)"
+#endif
 
 namespace {
 
@@ -14,16 +23,36 @@ constexpr uint32_t kSampleRate = 44100;
 constexpr uint8_t kChannels = 2;
 constexpr uint8_t kBitsPerSample = 16;
 constexpr size_t kBytesPerFrame = 4;
-constexpr size_t kSilenceFrames = 441;
-constexpr size_t kSilenceBytes = kSilenceFrames * kBytesPerFrame;
+constexpr size_t kBlockFrames = 441;
+constexpr size_t kBlockSamples = kBlockFrames * kChannels;
+constexpr size_t kBlockBytes = kBlockFrames * kBytesPerFrame;
 constexpr uint32_t kStatsIntervalUs = 5000000U;
 constexpr uint32_t kWriterStackBytes = 4096;
 constexpr UBaseType_t kWriterPriority = 2;
 constexpr BaseType_t kWriterCore = 1;
+constexpr uint32_t kToneFrequency = 1000;
+constexpr int16_t kTonePeak = 29490;
+constexpr double kTwoPi = 6.28318530717958647692;
 
-static_assert(kSilenceBytes == 1764, "Silence block must be exactly 10 ms");
-static_assert(kSilenceBytes % kBytesPerFrame == 0,
-              "Silence block must contain complete stereo frames");
+static_assert(kBlockBytes == 1764, "PCM block must be exactly 10 ms");
+static_assert(kBlockBytes % kBytesPerFrame == 0,
+              "PCM block must contain complete stereo frames");
+static_assert(kBlockSamples * sizeof(int16_t) == kBlockBytes,
+              "PCM block must be signed 16-bit interleaved stereo");
+
+#if A2DP_I2S_LOAD_TONE
+constexpr char kVariant[] = "direct-null-i2s-tone-load-probe";
+constexpr char kBluetoothName[] = "Faital A2DP Null I2S Tone";
+constexpr char kI2SLoadLine[] = "I2S load: independent continuous 1000 Hz PCM";
+constexpr char kStatsLabel[] = "TONE";
+constexpr char kWriterLabel[] = "tone";
+#else
+constexpr char kVariant[] = "direct-null-i2s-silence-load-probe";
+constexpr char kBluetoothName[] = "Faital A2DP Null I2S Load";
+constexpr char kI2SLoadLine[] = "I2S load: independent continuous zero PCM";
+constexpr char kStatsLabel[] = "SILENCE";
+constexpr char kWriterLabel[] = "silence";
+#endif
 
 struct WriterCounters {
   uint64_t written_bytes = 0;
@@ -50,11 +79,25 @@ struct DeferredDiagnostics {
 portMUX_TYPE writer_mux = portMUX_INITIALIZER_UNLOCKED;
 WriterCounters writer_counters;
 TaskHandle_t writer_task_handle = nullptr;
-alignas(4) uint8_t silence_block[kSilenceBytes] = {};
+alignas(4) int16_t pcm_block[kBlockSamples] = {};
 
 audio_tools::I2SStream silence_i2s;
 CountingNullAudioStream null_output;
 DeferredDiagnostics deferred;
+
+void preparePcmBlock() {
+#if A2DP_I2S_LOAD_TONE
+  for (size_t frame = 0; frame < kBlockFrames; ++frame) {
+    const double phase =
+        kTwoPi * static_cast<double>(kToneFrequency) *
+        static_cast<double>(frame) / static_cast<double>(kSampleRate);
+    const int16_t sample = static_cast<int16_t>(
+        std::lround(static_cast<double>(kTonePeak) * std::sin(phase)));
+    pcm_block[frame * kChannels] = sample;
+    pcm_block[frame * kChannels + 1] = sample;
+  }
+#endif
+}
 
 void setObservedFormat(uint32_t sample_rate) {
   a2dp_null_probe::counters.sample_rate = sample_rate;
@@ -112,12 +155,13 @@ void i2sSilenceWriter(void*) {
 
   for (;;) {
     size_t offset = 0;
-    while (offset < kSilenceBytes) {
-      const size_t remaining = kSilenceBytes - offset;
+    while (offset < kBlockBytes) {
+      const size_t remaining = kBlockBytes - offset;
       const uint32_t start_us =
           static_cast<uint32_t>(esp_timer_get_time());
-      const size_t written =
-          silence_i2s.write(silence_block + offset, remaining);
+      const auto* block_bytes =
+          reinterpret_cast<const uint8_t*>(pcm_block);
+      const size_t written = silence_i2s.write(block_bytes + offset, remaining);
       const uint32_t write_us =
           static_cast<uint32_t>(esp_timer_get_time()) - start_us;
 
@@ -243,11 +287,11 @@ void printWriterStats() {
           : uxTaskGetStackHighWaterMark(writer_task_handle);
 
   Serial.printf(
-      "SILENCE I2S: elapsed_ms=%lu, written=%llu, interval=%llu, "
+      "%s I2S: elapsed_ms=%lu, written=%llu, interval=%llu, "
       "rate=%lu B/s, calls=%llu, partial=%lu, zero=%lu, errors=%lu, "
       "write_us_avg=%lu, write_us_max=%lu, gap_ms_max=%lu, "
       "stack_min=%lu, free_heap=%lu\n",
-      static_cast<unsigned long>(elapsed_us / 1000U),
+      kStatsLabel, static_cast<unsigned long>(elapsed_us / 1000U),
       static_cast<unsigned long long>(current.written_bytes),
       static_cast<unsigned long long>(interval_written),
       static_cast<unsigned long>(byte_rate),
@@ -272,21 +316,30 @@ void setup() {
   delay(250);
 
   Serial.println();
-  Serial.println(
-      "ARDUINO_A2DP_TEST variant=direct-null-i2s-silence-load-probe");
-  Serial.println("Bluetooth name: Faital A2DP Null I2S Load");
+  Serial.printf("ARDUINO_A2DP_TEST variant=%s\n", kVariant);
+  Serial.printf("Bluetooth name: %s\n", kBluetoothName);
   Serial.println("Bluetooth output: CountingNullAudioStream");
   Serial.println("Bluetooth PCM to I2S: no");
-  Serial.println("I2S load: independent continuous zero PCM");
+  Serial.println(kI2SLoadLine);
   Serial.println("I2S writer: AudioTools I2SStream");
+#if A2DP_I2S_LOAD_TONE
+  Serial.println("Tone: 1000 Hz");
+  Serial.println("Tone amplitude: 90%");
+  Serial.println("Tone channels: left=right");
+  Serial.println("Tone block: 441 frames / 1764 bytes / 10 ms");
+#endif
   Serial.println("I2S: Philips, 44100 Hz, s16le stereo");
   Serial.println("Pins: BCK=26 WS=25 DATA=22");
   Serial.println("DMA: buffer_count=6 buffer_size=512 auto_clear=true");
+#if !A2DP_I2S_LOAD_TONE
   Serial.println("Silence block: 441 frames / 1764 bytes / 10 ms");
+#endif
   Serial.println("Writer task: core=1 priority=2 stack=4096");
   Serial.println("APLL: disabled");
   Serial.println("Additional A2DP queue: none");
   Serial.println("Stats interval: 5000 ms");
+
+  preparePcmBlock();
 
   auto config = silence_i2s.defaultConfig(TX_MODE);
   config.sample_rate = kSampleRate;
@@ -313,7 +366,7 @@ void setup() {
         i2sSilenceWriter, "i2s_silence_writer", kWriterStackBytes, nullptr,
         kWriterPriority, &writer_task_handle, kWriterCore);
   }
-  Serial.printf("I2S silence writer: %s\n",
+  Serial.printf("I2S %s writer: %s\n", kWriterLabel,
                 writer_result == pdPASS ? "started" : "failed");
 
   portENTER_CRITICAL(&a2dp_null_probe::counter_mux);
@@ -323,7 +376,7 @@ void setup() {
   static DirectNullSink a2dp_sink(null_output);
   a2dp_sink.set_sample_rate_callback(onSampleRate);
   a2dp_sink.set_on_audio_state_changed(onAudioState);
-  a2dp_sink.start("Faital A2DP Null I2S Load");
+  a2dp_sink.start(kBluetoothName);
 }
 
 void loop() {

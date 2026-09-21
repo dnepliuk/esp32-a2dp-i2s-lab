@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "snapshot_date": "2026-09-21",
+  "upstream": {
+    "repository": "https://github.com/pschatzmann/ESP32-A2DP",
+    "tag": "v1.8.11",
+    "commit": "b6da4744286ca15b6f1dee607c077a4747294dd4",
+    "license": "Apache-2.0",
+    "license_sha256": "2823c51aa01fd0cb6655ae61ff5152bccd4675840e259ad3052a9530bdd772cf"
+  },
+  "snapshot": {
+    "source": "verified clean PlatformIO tag checkout",
+    "excluded": [
+      ".git",
+      ".github",
+      ".gitignore",
+      "docs",
+      "examples",
+      "Doxyfile",
+      "build artifacts",
+      "caches"
+    ]
+  },
+  "modified_files": [
+    "src/BluetoothA2DPSinkQueued.cpp",
+    "src/BluetoothA2DPSinkQueued.h"
+  ],
+  "files": [
+    {
+      "path": "CMakeLists.txt",
+      "upstream_sha256": "faa5f7d4bcf830d28b41a17e5827aa5dd5e62d3bd27dda4c792fe632cd5102e1",
+      "fork_sha256": "faa5f7d4bcf830d28b41a17e5827aa5dd5e62d3bd27dda4c792fe632cd5102e1"
+    },
+    {
+      "path": "component.mk",
+      "upstream_sha256": "1f9c8df487bd95f0044fd50b9227f245c2f3f058afba603a26a9dea3b0e1d2fe",
+      "fork_sha256": "1f9c8df487bd95f0044fd50b9227f245c2f3f058afba603a26a9dea3b0e1d2fe"
+    },
+    {
+      "path": "keywords.txt",
+      "upstream_sha256": "59d50ffd13e87efee56f879db7934aad13e39762ce13683378de096db656b684",
+      "fork_sha256": "59d50ffd13e87efee56f879db7934aad13e39762ce13683378de096db656b684"
+    },
+    {
+      "path": "library.properties",
+      "upstream_sha256": "925128585cdfdfa6d3e8157c474417bacb9ce4bc14e6db5d2ab93779a7b4911c",
+      "fork_sha256": "925128585cdfdfa6d3e8157c474417bacb9ce4bc14e6db5d2ab93779a7b4911c"
+    },
+    {
+      "path": "LICENSE",
+      "upstream_sha256": "2823c51aa01fd0cb6655ae61ff5152bccd4675840e259ad3052a9530bdd772cf",
+      "fork_sha256": "2823c51aa01fd0cb6655ae61ff5152bccd4675840e259ad3052a9530bdd772cf"
+    },
+    {
+      "path": "README.md",
+      "upstream_sha256": "641006e72935799472fa26d30986616bf709c3995a06bffc4eafc18934ed8c78",
+      "fork_sha256": "641006e72935799472fa26d30986616bf709c3995a06bffc4eafc18934ed8c78"
+    },
+    {
+      "path": "src/A2DPVolumeControl.h",
+      "upstream_sha256": "ccd9767987d950526a6e18eb9cb11a1bf81b753c787aaf1920c7af63959132db",
+      "fork_sha256": "ccd9767987d950526a6e18eb9cb11a1bf81b753c787aaf1920c7af63959132db"
+    },
+    {
+      "path": "src/BluetoothA2DP.h",
+      "upstream_sha256": "214516af792faaa3b384d49883136f64bbdc584447ea5e4a100d376f8b68da5a",
+      "fork_sha256": "214516af792faaa3b384d49883136f64bbdc584447ea5e4a100d376f8b68da5a"
+    },
+    {
+      "path": "src/BluetoothA2DPCommon.cpp",
+      "upstream_sha256": "3a8f47fe3b64876cd273038d32845883fbd1e483174efed28e87dc4622b2d753",
+      "fork_sha256": "3a8f47fe3b64876cd273038d32845883fbd1e483174efed28e87dc4622b2d753"
+    },
+    {
+      "path": "src/BluetoothA2DPCommon.h",
+      "upstream_sha256": "68a6729bd5156d81de1e206f8cc97d9db37d434dee138590b11835d46e208a5a",
+      "fork_sha256": "68a6729bd5156d81de1e206f8cc97d9db37d434dee138590b11835d46e208a5a"
+    },
+    {
+      "path": "src/BluetoothA2DPOutput.cpp",
+      "upstream_sha256": "e50a0fbe973b330baa045019d22410104c9ecf1116de77875faabf1a0b84133b",
+      "fork_sha256": "e50a0fbe973b330baa045019d22410104c9ecf1116de77875faabf1a0b84133b"
+    },
+    {
+      "path": "src/BluetoothA2DPOutput.h",
+      "upstream_sha256": "6f91ab9da2d99b08e191f4e29c529846da943c998268e508edc57cc5c494d1c0",
+      "fork_sha256": "6f91ab9da2d99b08e191f4e29c529846da943c998268e508edc57cc5c494d1c0"
+    },
+    {
+      "path": "src/BluetoothA2DPSink.cpp",
+      "upstream_sha256": "d84f387cbc5f52fdc2e5e0c1550e5c6560030254600b0f9c038664c5d75c3636",
+      "fork_sha256": "d84f387cbc5f52fdc2e5e0c1550e5c6560030254600b0f9c038664c5d75c3636"
+    },
+    {
+      "path": "src/BluetoothA2DPSink.h",
+      "upstream_sha256": "c4983fce933bc6f5ff1c7b49889e1aa90d9d3f2a1b196723131e6610ddd88a7c",
+      "fork_sha256": "c4983fce933bc6f5ff1c7b49889e1aa90d9d3f2a1b196723131e6610ddd88a7c"
+    },
+    {
+      "path": "src/BluetoothA2DPSinkQueued.cpp",
+      "upstream_sha256": "958903adbbd5d51083076198b54f6de0b72f12d00f3bca5393ee662259924b5f",
+      "fork_sha256": "147b7589e1c0eeb909893c932e6d006cd1d7f63cf58186ece67071b42859d792"
+    },
+    {
+      "path": "src/BluetoothA2DPSinkQueued.h",
+      "upstream_sha256": "3d15a1129afe1120b839bc5ff8a313a1b85370c1428d5a9600c1e58e7eaf7b3e",
+      "fork_sha256": "7a01e4ececf011a741a06fdc833f8c74b108a7ce7f7e6deaa57a7123b280e61f"
+    },
+    {
+      "path": "src/BluetoothA2DPSource.cpp",
+      "upstream_sha256": "10ef270983b24a1aa8884396f9c77147cca49d540d4f2b3a99058d5130ef37d7",
+      "fork_sha256": "10ef270983b24a1aa8884396f9c77147cca49d540d4f2b3a99058d5130ef37d7"
+    },
+    {
+      "path": "src/BluetoothA2DPSource.h",
+      "upstream_sha256": "852825322e78a2f1956362cd1e10d177093618fa05b8bd2546f4c37fe7c6e652",
+      "fork_sha256": "852825322e78a2f1956362cd1e10d177093618fa05b8bd2546f4c37fe7c6e652"
+    },
+    {
+      "path": "src/config.h",
+      "upstream_sha256": "1026a68cfbed7f628cc791dbeea8260fed910195b9c373ef89f45406f42fc65e",
+      "fork_sha256": "1026a68cfbed7f628cc791dbeea8260fed910195b9c373ef89f45406f42fc65e"
+    }
+  ]
+}

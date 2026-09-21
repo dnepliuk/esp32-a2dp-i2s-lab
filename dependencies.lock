@@ -1,0 +1,24 @@
+# Resolved by `pio run -e a2dp-arduino-minimal` on 2026-09-18.
+
+[platformio]
+platform = espressif32
+version = 7.1.3
+
+[framework]
+package = framework-arduinoespressif32
+package_version = 4.20017.260907+sha.dcc1105b
+arduino_esp32 = 2.0.17
+esp_idf_base = 4.4.7
+esp_idf_runtime = v4.4.7-dirty
+
+[library.esp32_a2dp]
+repository = https://github.com/pschatzmann/ESP32-A2DP.git
+tag = v1.8.11
+commit = b6da4744286ca15b6f1dee607c077a4747294dd4
+license = Apache-2.0
+
+[library.audio_tools]
+repository = https://github.com/pschatzmann/arduino-audio-tools.git
+tag = v1.2.5
+commit = 2390c44fac3bdd1df40b80a088f00c9a203053b9
+license = GPL-3.0-or-later

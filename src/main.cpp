@@ -1,46 +1,58 @@
 #include <Arduino.h>
-#include <esp_idf_version.h>
 
-#include "AudioTools.h"
-#include "BluetoothA2DPSink.h"
-
-I2SStream i2s;
-BluetoothA2DPSink a2dp_sink(i2s);
+#include "app_config.h"
+#include "audio_output.h"
+#include "bluetooth_audio.h"
+#include "status_led.h"
 
 namespace {
-constexpr char kBluetoothName[] = "Faital A2DP Arduino";
-}
 
-void setup() {
-  Serial.begin(115200);
-  delay(250);
-
-  Serial.println();
-  Serial.println("ARDUINO_A2DP_TEST variant=minimal-direct");
-  Serial.println("Bluetooth name: Faital A2DP Arduino");
+void printStartupBanner() {
+  Serial.println("FAITAL_SPEAKER firmware=arduino-production");
+  Serial.print("Bluetooth name: ");
+  Serial.println(AppConfig::kBluetoothName);
   Serial.println("ESP32-A2DP: 1.8.11");
   Serial.println("AudioTools: 1.2.5");
-  Serial.println("I2S: BCK=26 WS=25 DATA=22");
-  Serial.printf("Arduino-ESP32: %d.%d.%d\n", ESP_ARDUINO_VERSION_MAJOR,
-                ESP_ARDUINO_VERSION_MINOR, ESP_ARDUINO_VERSION_PATCH);
-  Serial.printf("ESP-IDF: %s\n", esp_get_idf_version());
-  Serial.printf("CPU frequency: %u MHz\n", getCpuFrequencyMhz());
+  Serial.println("I2S: Philips, 44100 Hz initial, s16le stereo");
+  Serial.println("Pins: BCK=26 WS=25 DATA=19");
+  Serial.println("Status LED: GPIO2 active-high");
+  Serial.println("Auto reconnect: enabled");
+}
 
-  auto config = i2s.defaultConfig(TX_MODE);
-  config.sample_rate = 44100;
-  config.bits_per_sample = 16;
-  config.channels = 2;
-  config.i2s_format = I2S_STD_FORMAT;
-  config.pin_bck = 26;
-  config.pin_ws = 25;
-  config.pin_data = 22;
-  config.pin_data_rx = -1;
-  i2s.begin(config);
+StatusLed::State currentLedState() {
+  if (BluetoothAudio::isPlaying()) {
+    return StatusLed::State::Playing;
+  }
+  if (BluetoothAudio::isConnected()) {
+    return StatusLed::State::ConnectedIdle;
+  }
+  return StatusLed::State::WaitingForConnection;
+}
 
-  a2dp_sink.start(kBluetoothName);
-  Serial.printf("Free heap after start: %u bytes\n", ESP.getFreeHeap());
+}  // namespace
+
+void setup() {
+  Serial.begin(AppConfig::kSerialBaud);
+  StatusLed::begin();
+  printStartupBanner();
+
+  if (!AudioOutput::begin()) {
+    Serial.println("Initialization error: I2S output failed");
+    StatusLed::setState(StatusLed::State::InitializationError);
+    return;
+  }
+
+  BluetoothAudio::begin(AudioOutput::stream());
+  StatusLed::setState(StatusLed::State::WaitingForConnection);
+  Serial.println("Initialization successful; waiting for Bluetooth connection");
 }
 
 void loop() {
-  delay(1000);
+  BluetoothAudio::update();
+
+  if (AudioOutput::isReady()) {
+    StatusLed::setState(currentLedState());
+  }
+  StatusLed::update();
+  yield();
 }

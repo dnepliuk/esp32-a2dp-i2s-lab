@@ -1,4 +1,4 @@
-# Resolved by `pio run -e a2dp-arduino-minimal` on 2026-09-18.
+# Resolved for `pio run -e speaker-arduino`.
 
 [platformio]
 platform = espressif32

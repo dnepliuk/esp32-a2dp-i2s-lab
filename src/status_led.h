@@ -7,6 +7,7 @@ namespace StatusLed {
 enum class State : uint8_t {
   Initializing,
   WaitingForConnection,
+  Pairing,
   ConnectedIdle,
   Playing,
   InitializationError,

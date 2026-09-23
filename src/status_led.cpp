@@ -57,6 +57,10 @@ void update() {
     case State::WaitingForConnection:
       on = (elapsed % 1000U) < 500U;
       break;
+    case State::Pairing:
+      on = (elapsed % (2U * AppConfig::kPairingLedIntervalMs)) <
+           AppConfig::kPairingLedIntervalMs;
+      break;
     case State::ConnectedIdle:
       on = true;
       break;

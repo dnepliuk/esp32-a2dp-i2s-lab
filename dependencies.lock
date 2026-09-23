@@ -22,3 +22,15 @@ repository = https://github.com/pschatzmann/arduino-audio-tools.git
 tag = v1.2.5
 commit = 2390c44fac3bdd1df40b80a088f00c9a203053b9
 license = GPL-3.0-or-later
+
+[library.esp32_encoder]
+registry = madhephaestus/ESP32Encoder
+version = 0.12.0
+platformio_id = 5835
+license = BSD-3-Clause-Attribution
+
+[library.one_button]
+registry = mathertel/OneButton
+version = 2.6.1
+platformio_id = 1260
+license = BSD-3-Clause

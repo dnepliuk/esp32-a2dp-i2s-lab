@@ -3,6 +3,9 @@
 #include "app_config.h"
 #include "audio_output.h"
 #include "bluetooth_audio.h"
+#include "button_input.h"
+#include "media_control.h"
+#include "rotary_input.h"
 #include "status_led.h"
 
 namespace {
@@ -20,6 +23,9 @@ void printStartupBanner() {
 }
 
 StatusLed::State currentLedState() {
+  if (BluetoothAudio::isPairingMode()) {
+    return StatusLed::State::Pairing;
+  }
   if (BluetoothAudio::isPlaying()) {
     return StatusLed::State::Playing;
   }
@@ -43,12 +49,17 @@ void setup() {
   }
 
   BluetoothAudio::begin(AudioOutput::stream());
+  rotary_input_init();
+  button_input_init();
   StatusLed::setState(StatusLed::State::WaitingForConnection);
   Serial.println("Initialization successful; waiting for Bluetooth connection");
 }
 
 void loop() {
+  button_input_update();
   BluetoothAudio::update();
+  rotary_input_update();
+  media_control_update();
 
   if (AudioOutput::isReady()) {
     StatusLed::setState(currentLedState());

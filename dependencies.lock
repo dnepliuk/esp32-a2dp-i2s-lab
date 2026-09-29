@@ -34,3 +34,22 @@ registry = mathertel/OneButton
 version = 2.6.1
 platformio_id = 1260
 license = BSD-3-Clause
+
+[library.adafruit_ssd1306]
+registry = adafruit/Adafruit SSD1306
+version = 2.5.17
+
+[library.adafruit_gfx]
+registry = adafruit/Adafruit GFX Library
+version = 1.12.6
+
+[library.adafruit_neopixel]
+registry = adafruit/Adafruit NeoPixel
+version = 1.13.0
+platformio_id = 28
+license = LGPL-3.0
+
+[library.adafruit_busio]
+registry = adafruit/Adafruit BusIO
+version = 1.17.4
+dependency = transitive

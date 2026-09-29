@@ -7,8 +7,7 @@
 namespace StatusLed {
 namespace {
 
-State s_state = State::Initializing;
-uint32_t s_stateStartedAt = 0;
+uint32_t s_heartbeatStartedAt = 0;
 bool s_outputOn = false;
 
 void writeLed(bool on) {
@@ -20,58 +19,29 @@ void writeLed(bool on) {
   digitalWrite(AppConfig::kStatusLedPin, level ? HIGH : LOW);
 }
 
-bool errorPattern(uint32_t elapsed) {
-  const uint32_t phase = elapsed % 1000U;
-  return phase < 100U || (phase >= 200U && phase < 300U) ||
-         (phase >= 400U && phase < 500U);
-}
-
 }  // namespace
 
 void begin() {
   pinMode(AppConfig::kStatusLedPin, OUTPUT);
-  s_state = State::Initializing;
-  s_stateStartedAt = millis();
+  s_heartbeatStartedAt = millis();
   s_outputOn = false;
   digitalWrite(AppConfig::kStatusLedPin,
                AppConfig::kStatusLedActiveHigh ? LOW : HIGH);
+  Serial.print("STATUS LED: GPIO=");
+  Serial.print(AppConfig::kStatusLedPin);
+  Serial.print(" mode=heartbeat period=");
+  Serial.print(AppConfig::kStatusLedHeartbeatPeriodMs);
+  Serial.print(" ms pulse=");
+  Serial.print(AppConfig::kStatusLedHeartbeatOnMs);
+  Serial.println(" ms");
   update();
 }
 
-void setState(State state) {
-  if (state == s_state) {
-    return;
-  }
-  s_state = state;
-  s_stateStartedAt = millis();
-}
-
 void update() {
-  const uint32_t elapsed = millis() - s_stateStartedAt;
-  bool on = false;
-
-  switch (s_state) {
-    case State::Initializing:
-      on = (elapsed % 200U) < 100U;
-      break;
-    case State::WaitingForConnection:
-      on = (elapsed % 1000U) < 500U;
-      break;
-    case State::Pairing:
-      on = (elapsed % (2U * AppConfig::kPairingLedIntervalMs)) <
-           AppConfig::kPairingLedIntervalMs;
-      break;
-    case State::ConnectedIdle:
-      on = true;
-      break;
-    case State::Playing:
-      on = (elapsed % 2000U) >= 100U;
-      break;
-    case State::InitializationError:
-      on = errorPattern(elapsed);
-      break;
-  }
-
+  const uint32_t phase =
+      (millis() - s_heartbeatStartedAt) %
+      AppConfig::kStatusLedHeartbeatPeriodMs;
+  const bool on = phase < AppConfig::kStatusLedHeartbeatOnMs;
   writeLed(on);
 }
 
